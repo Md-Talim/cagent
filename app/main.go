@@ -56,6 +56,24 @@ func main() {
 							"required": []string{"file_path"},
 						},
 					}),
+					openai.ChatCompletionFunctionTool(openai.FunctionDefinitionParam{
+						Name:        "Write",
+						Description: openai.String("Write content to a file"),
+						Parameters: openai.FunctionParameters{
+							"type": "object",
+							"properties": map[string]any{
+								"file_path": map[string]any{
+									"type":        "string",
+									"description": "The path of the file to write to",
+								},
+								"content": map[string]any{
+									"type":        "string",
+									"description": "The content to write to the file",
+								},
+							},
+							"required": []string{"file_path", "content"},
+						},
+					}),
 				},
 			},
 		)
@@ -76,22 +94,47 @@ func main() {
 		}
 
 		for _, toolCall := range toolCalls {
-			type ReadToolCallArgument struct {
-				FilePath string `json:"file_path"`
+			switch toolCall.Function.Name {
+			case "Read":
+				type ReadToolCallArgument struct {
+					FilePath string `json:"file_path"`
+				}
+
+				var arguments ReadToolCallArgument
+
+				if err := json.Unmarshal([]byte(toolCall.Function.Arguments), &arguments); err != nil {
+					fmt.Fprintf(os.Stderr, "error parsing read tool call argument: %v\n", err)
+				}
+
+				data, err := os.ReadFile(arguments.FilePath)
+				if err != nil {
+					fmt.Fprintf(os.Stderr, "error reading file(%s): %v\n", arguments.FilePath, err)
+				}
+
+				messages = append(messages, openai.ToolMessage(string(data), toolCall.ID))
+			case "Write":
+				type WriteToolCallArgument struct {
+					FilePath string `json:"file_path"`
+					Content  string `json:"content"`
+				}
+
+				var arguments WriteToolCallArgument
+				var result string
+
+				if err := json.Unmarshal([]byte(toolCall.Function.Arguments), &arguments); err != nil {
+					fmt.Fprintf(os.Stderr, "error parsing read tool call argument: %v\n", err)
+				}
+
+				err := os.WriteFile(arguments.FilePath, []byte(arguments.Content), 0644)
+				if err != nil {
+					result = fmt.Sprintf("Error writing file: %v", err)
+					fmt.Fprintf(os.Stderr, "error writing file: %v\n", err)
+				} else {
+					result = "Success: File written successfully."
+				}
+
+				messages = append(messages, openai.ToolMessage(result, toolCall.ID))
 			}
-
-			var arguments ReadToolCallArgument
-
-			if err := json.Unmarshal([]byte(toolCall.Function.Arguments), &arguments); err != nil {
-				fmt.Fprintf(os.Stderr, "error parsing read tool call argument: %v\n", err)
-			}
-
-			data, err := os.ReadFile(arguments.FilePath)
-			if err != nil {
-				fmt.Fprintf(os.Stderr, "error reading file(%s): %v\n", arguments.FilePath, err)
-			}
-
-			messages = append(messages, openai.ToolMessage(string(data), toolCall.ID))
 		}
 	}
 }
