@@ -6,6 +6,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"os/exec"
 
 	"github.com/openai/openai-go/v3"
 	"github.com/openai/openai-go/v3/option"
@@ -74,6 +75,20 @@ func main() {
 							"required": []string{"file_path", "content"},
 						},
 					}),
+					openai.ChatCompletionFunctionTool(openai.FunctionDefinitionParam{
+						Name:        "RunBashCommand",
+						Description: openai.String("Execute a shell command"),
+						Parameters: openai.FunctionParameters{
+							"type": "object",
+							"properties": map[string]any{
+								"command": map[string]any{
+									"type":        "string",
+									"description": "The command to execute",
+								},
+							},
+							"required": []string{"command"},
+						},
+					}),
 				},
 			},
 		)
@@ -134,6 +149,34 @@ func main() {
 				}
 
 				messages = append(messages, openai.ToolMessage(result, toolCall.ID))
+			case "RunBashCommand":
+				type BashToolCallArgument struct {
+					Command string `json:"command"`
+				}
+
+				var arguments BashToolCallArgument
+				var result string
+
+				if err := json.Unmarshal([]byte(toolCall.Function.Arguments), &arguments); err != nil {
+					fmt.Fprintf(os.Stderr, "error parsing read tool call argument: %v\n", err)
+				}
+
+				cmd := exec.Command("bash", "-c", arguments.Command)
+
+				output, err := cmd.CombinedOutput()
+				if err != nil {
+					result = fmt.Sprintf("Command failed with error: %v", err)
+					fmt.Fprintf(os.Stderr, "error run command: %v\n", err)
+				} else {
+					result = string(output)
+					if result == "" {
+						result = "Command executed successfully (no output returned)."
+					}
+				}
+
+				messages = append(messages, openai.ToolMessage(result, toolCall.ID))
+
+				fmt.Fprintf(os.Stderr, "[Agent Logs] Ran command: %s\n", arguments.Command)
 			}
 		}
 	}
