@@ -1,34 +1,40 @@
 [![progress-banner](https://backend.codecrafters.io/progress/claude-code/807b8e8f-5b9f-4d82-b661-e9df66078c7a)](https://app.codecrafters.io/users/codecrafters-bot?r=2qF)
 
-This is a starting point for Go solutions to the
-["Build Your own Claude Code" Challenge](https://codecrafters.io/challenges/claude-code).
+# Building Claude Code from Scratch
 
-Claude Code is an AI coding assistant that uses Large Language Models (LLMs) to
-understand code and perform actions through tool calls. In this challenge,
-you'll build your own Claude Code from scratch by implementing an LLM-powered
-coding assistant.
+I'm learning agentic engineering by building a small Claude Code clone through the [CodeCrafters "Build Your Own Claude Code" challenge](https://codecrafters.io/challenges/claude-code).
 
-Along the way you'll learn about HTTP RESTful APIs, OpenAI-compatible tool
-calling, agent loop, and how to integrate multiple tools into an AI assistant.
+The basic idea: send a prompt to an LLM, let the LLM call tools like reading a file or running a shell command, run those tools, send the results back, and keep looping until the model gives a final answer.
 
-**Note**: If you're viewing this repo on GitHub, head over to
-[codecrafters.io](https://codecrafters.io) to try the challenge.
+## What it can do right now
 
-# Passing the first stage
+- Read a file
+- Write a file
+- Run a bash command
+- Loop through tool calls until the model stops asking for them
 
-The entry point for your `claude-code` implementation is in `app/main.go`. Study
-and uncomment the relevant code, and submit to pass the first stage:
+The tool names the model sees are `Read`, `Write`, and `RunBashCommand`.
+
+## Running it
+
+To be honest, I mostly run this through the CodeCrafters tests and have not spent much time running it locally. If you want to try it locally:
+
+1. Install Go 1.25.
+2. Get an API key from [OpenRouter](https://openrouter.ai).
+3. Set `OPENROUTER_API_KEY`. You can also set `OPENROUTER_BASE_URL` if you want to point at a different OpenAI compatible endpoint. It defaults to `https://openrouter.ai/api/v1`.
+4. Run:
 
 ```sh
-codecrafters submit
+./run.sh -p "your prompt here"
 ```
 
-# Stage 2 & beyond
+I have not added a `.env` loader, so the key needs to be in your environment. Don't commit your key.
 
-Note: This section is for stages 2 and beyond.
+Be a little careful with this: the agent can write files and run bash commands. Try it in a scratch directory and don't put secrets in your prompts.
 
-1. Ensure you have `go (1.25)` installed locally.
-2. Run `./your_program.sh` to run your program, which is implemented in
-   `app/main.go`.
-3. Run `codecrafters submit` to submit your solution to CodeCrafters. Test
-   output will be streamed to your terminal.
+## Tests
+
+```sh
+go test ./...
+go vet ./...
+```
