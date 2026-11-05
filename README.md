@@ -1,4 +1,4 @@
-[![progress-banner](https://backend.codecrafters.io/progress/claude-code/807b8e8f-5b9f-4d82-b661-e9df66078c7a)](https://app.codecrafters.io/users/codecrafters-bot?r=2qF)
+[![progress-banner](https://backend.codecrafters.io/progress/claude-code/807b8e8f-5b9f-4d82-b661-e9df66078c7a)](https://app.codecrafters.io/users/Md-Talim?r=2qF)
 
 # Building Claude Code from Scratch
 
@@ -11,9 +11,11 @@ The basic idea: send a prompt to an LLM, let the LLM call tools like reading a f
 - Read a file
 - Write a file
 - Run a bash command
+- Load skills from `.claude/skills`, either by typing `/name` or by letting the model pick one
+- Run a skill in its own subagent when the skill sets `context: fork`
 - Loop through tool calls until the model stops asking for them
 
-The tool names the model sees are `Read`, `Write`, and `RunBashCommand`.
+The tool names the model sees are `Read`, `Write`, `RunBashCommand`, and `Skill` (only when there is at least one skill).
 
 ## Running it
 
