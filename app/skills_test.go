@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
@@ -20,6 +21,14 @@ func writeSkill(t *testing.T, root, folder, content string) {
 	if err := os.WriteFile(filepath.Join(dir, "SKILL.md"), []byte(content), 0o644); err != nil {
 		t.Fatalf("write skill %s: %v", folder, err)
 	}
+}
+
+func skillPrefix(skill Skill) string {
+	return fmt.Sprintf(
+		"Skill: %s (located at %s)\nPaths in the instructions below are relative to that folder.\n\n",
+		skill.Name,
+		filepath.ToSlash(skill.Dir),
+	)
 }
 
 func TestParseSkillFile(t *testing.T) {
@@ -224,8 +233,14 @@ func TestExpandPrompt(t *testing.T) {
 
 	const appleBody = "Respond with exactly one word: blueberry\n\nDo not add anything else."
 
-	assertExpanded(t, set, "/apple", appleBody)
-	assertExpanded(t, set, "/apple please deploy", appleBody)
+	apple, ok := set.Find("apple")
+	if !ok {
+		t.Fatal("Find(\"apple\") not found")
+	}
+	prefix := skillPrefix(apple)
+
+	assertExpanded(t, set, "/apple", prefix+appleBody)
+	assertExpanded(t, set, "/apple please deploy", prefix+appleBody)
 	assertExpanded(t, set, "Which skill fits?", "Which skill fits?")
 	assertExpanded(t, set, "/mango", "/mango")
 	assertExpanded(t, set, "/", "/")
@@ -259,6 +274,12 @@ func TestNewAgentInjectsSystemPromptAndSkillBody(t *testing.T) {
 		t.Fatalf("LoadSkills() error = %v", err)
 	}
 
+	apple, ok := set.Find("apple")
+	if !ok {
+		t.Fatal("Find(\"apple\") not found")
+	}
+	want := skillPrefix(apple) + "Respond with exactly one word: blueberry"
+
 	agent := NewAgent(openai.Client{}, "test-model", set, "/apple")
 	msgs := agentMessages(t, agent)
 
@@ -274,8 +295,8 @@ func TestNewAgentInjectsSystemPromptAndSkillBody(t *testing.T) {
 	if msgs[1].Role != "user" {
 		t.Errorf("messages[1].role = %q, want user", msgs[1].Role)
 	}
-	if msgs[1].Content != "Respond with exactly one word: blueberry" {
-		t.Errorf("user message = %q, want skill body", msgs[1].Content)
+	if msgs[1].Content != want {
+		t.Errorf("user message = %q, want %q", msgs[1].Content, want)
 	}
 }
 
@@ -339,7 +360,12 @@ Deploy to $0 in region $1. Full request was: $ARGUMENTS
 		t.Fatalf("LoadSkills() error = %v", err)
 	}
 
-	want := "Deploy to staging in region eu-west. Full request was: staging eu-west"
+	apple, ok := set.Find("apple")
+	if !ok {
+		t.Fatal("Find(\"apple\") not found")
+	}
+
+	want := skillPrefix(apple) + "Deploy to staging in region eu-west. Full request was: staging eu-west"
 	assertExpanded(t, set, "/apple staging eu-west", want)
 }
 
@@ -352,7 +378,64 @@ func TestExpandPromptWithoutArguments(t *testing.T) {
 		t.Fatalf("LoadSkills() error = %v", err)
 	}
 
-	assertExpanded(t, set, "/apple", "Args: [] []")
+	apple, ok := set.Find("apple")
+	if !ok {
+		t.Fatal("Find(\"apple\") not found")
+	}
+
+	assertExpanded(t, set, "/apple", skillPrefix(apple)+"Args: [] []")
+}
+
+func TestSkillRender(t *testing.T) {
+	root := t.TempDir()
+	writeSkill(t, root, "apple", "---\nname: apple\ndescription: Apple skill.\n---\n\nblueberry-$ARGUMENTS\n")
+
+	set, err := LoadSkills(root)
+	if err != nil {
+		t.Fatalf("LoadSkills() error = %v", err)
+	}
+
+	apple, ok := set.Find("apple")
+	if !ok {
+		t.Fatal("Find(\"apple\") not found")
+	}
+
+	got, err := apple.Render("4127")
+	if err != nil {
+		t.Fatalf("Render() error = %v", err)
+	}
+
+	want := skillPrefix(apple) + "blueberry-4127"
+	if got != want {
+		t.Errorf("Render() = %q, want %q", got, want)
+	}
+}
+
+func TestLoadSkillsRelativeRoot(t *testing.T) {
+	t.Chdir(t.TempDir())
+	root := filepath.Join(".claude", "skills")
+	writeSkill(t, root, "apple", "---\nname: apple\ndescription: Apple skill.\n---\n\nRun `scripts/check.sh`.\n")
+
+	set, err := LoadSkills(root)
+	if err != nil {
+		t.Fatalf("LoadSkills() error = %v", err)
+	}
+
+	apple, ok := set.Find("apple")
+	if !ok {
+		t.Fatal("Find(\"apple\") not found")
+	}
+
+	wantDir := filepath.Join(".claude", "skills", "apple")
+	if apple.Dir != wantDir {
+		t.Errorf("Dir = %q, want %q", apple.Dir, wantDir)
+	}
+
+	got := set.ExpandPrompt("/apple")[0]
+	want := "Skill: apple (located at " + filepath.ToSlash(wantDir) + ")\nPaths in the instructions below are relative to that folder.\n\nRun `scripts/check.sh`."
+	if got != want {
+		t.Errorf("ExpandPrompt() = %q, want %q", got, want)
+	}
 }
 
 func TestExpandPromptStacksSkills(t *testing.T) {
@@ -366,6 +449,17 @@ func TestExpandPromptStacksSkills(t *testing.T) {
 		t.Fatalf("LoadSkills() error = %v", err)
 	}
 
+	apple, ok := set.Find("apple")
+	if !ok {
+		t.Fatal("Find(\"apple\") not found")
+	}
+	grape, ok := set.Find("grape")
+	if !ok {
+		t.Fatal("Find(\"grape\") not found")
+	}
+	appleMsg := func(body string) string { return skillPrefix(apple) + body }
+	grapeMsg := func(body string) string { return skillPrefix(grape) + body }
+
 	tests := []struct {
 		name   string
 		prompt string
@@ -374,17 +468,17 @@ func TestExpandPromptStacksSkills(t *testing.T) {
 		{
 			name:   "two skills share arguments",
 			prompt: "/apple /grape 4127",
-			want:   []string{"blueberry-4127", "cherry-4127"},
+			want:   []string{appleMsg("blueberry-4127"), grapeMsg("cherry-4127")},
 		},
 		{
 			name:   "stops at first argument",
 			prompt: "/apple 4127 /grape",
-			want:   []string{"blueberry-4127 /grape"},
+			want:   []string{appleMsg("blueberry-4127 /grape")},
 		},
 		{
 			name:   "stops at unknown skill",
 			prompt: "/apple /kiwi 4127",
-			want:   []string{"blueberry-/kiwi 4127"},
+			want:   []string{appleMsg("blueberry-/kiwi 4127")},
 		},
 		{
 			name:   "unknown first skill",
@@ -394,12 +488,12 @@ func TestExpandPromptStacksSkills(t *testing.T) {
 		{
 			name:   "no arguments",
 			prompt: "/apple /grape",
-			want:   []string{"blueberry-", "cherry-"},
+			want:   []string{appleMsg("blueberry-"), grapeMsg("cherry-")},
 		},
 		{
 			name:   "never invoked skill stays out",
 			prompt: "/apple /grape 4127",
-			want:   []string{"blueberry-4127", "cherry-4127"},
+			want:   []string{appleMsg("blueberry-4127"), grapeMsg("cherry-4127")},
 		},
 	}
 
@@ -420,6 +514,17 @@ func TestNewAgentStacksSkillMessages(t *testing.T) {
 		t.Fatalf("LoadSkills() error = %v", err)
 	}
 
+	apple, ok := set.Find("apple")
+	if !ok {
+		t.Fatal("Find(\"apple\") not found")
+	}
+	grape, ok := set.Find("grape")
+	if !ok {
+		t.Fatal("Find(\"grape\") not found")
+	}
+	want1 := skillPrefix(apple) + "blueberry-4127"
+	want2 := skillPrefix(grape) + "cherry-4127"
+
 	agent := NewAgent(openai.Client{}, "test-model", set, "/apple /grape 4127")
 	msgs := agentMessages(t, agent)
 
@@ -429,10 +534,10 @@ func TestNewAgentStacksSkillMessages(t *testing.T) {
 	if msgs[0].Role != "system" {
 		t.Errorf("messages[0].role = %q, want system", msgs[0].Role)
 	}
-	if msgs[1].Role != "user" || msgs[1].Content != "blueberry-4127" {
-		t.Errorf("messages[1] = %+v", msgs[1])
+	if msgs[1].Role != "user" || msgs[1].Content != want1 {
+		t.Errorf("messages[1] = %+v, want %q", msgs[1], want1)
 	}
-	if msgs[2].Role != "user" || msgs[2].Content != "cherry-4127" {
-		t.Errorf("messages[2] = %+v", msgs[2])
+	if msgs[2].Role != "user" || msgs[2].Content != want2 {
+		t.Errorf("messages[2] = %+v, want %q", msgs[2], want2)
 	}
 }
