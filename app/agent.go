@@ -12,7 +12,8 @@ import (
 type Agent struct {
 	client   openai.Client
 	model    string
-	tools    []openai.ChatCompletionToolUnionParam
+	tools    []Tool
+	toolDefs []openai.ChatCompletionToolUnionParam
 	messages []openai.ChatCompletionMessageParamUnion
 }
 
@@ -25,10 +26,13 @@ func NewAgent(client openai.Client, model string, skills *SkillSet, prompt strin
 		messages = append(messages, openai.UserMessage(content))
 	}
 
+	tools := toolRegistry(skills)
+
 	return &Agent{
 		client:   client,
 		model:    model,
-		tools:    toolDefinitions(),
+		tools:    tools,
+		toolDefs: toolDefinitions(tools),
 		messages: messages,
 	}
 }
@@ -38,7 +42,7 @@ func (a *Agent) Run(ctx context.Context) (string, error) {
 		resp, err := a.client.Chat.Completions.New(ctx, openai.ChatCompletionNewParams{
 			Model:    a.model,
 			Messages: a.messages,
-			Tools:    a.tools,
+			Tools:    a.toolDefs,
 		})
 		if err != nil {
 			return "", fmt.Errorf("chat completion: %w", err)
@@ -62,7 +66,7 @@ func (a *Agent) Run(ctx context.Context) (string, error) {
 }
 
 func (a *Agent) runTool(ctx context.Context, tc openai.ChatCompletionMessageToolCallUnion) string {
-	tool, ok := findTool(tc.Function.Name)
+	tool, ok := findTool(a.tools, tc.Function.Name)
 	if !ok {
 		return fmt.Sprintf("error: unknown tool %q", tc.Function.Name)
 	}

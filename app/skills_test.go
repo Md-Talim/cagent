@@ -202,7 +202,9 @@ func TestSystemPrompt(t *testing.T) {
 
 	want := "You have access to the following skills:\n\n" +
 		"- apple: Deploys apple.\n" +
-		"- grape: Runs grape tests."
+		"- grape: Runs grape tests.\n\n" +
+		"If a skill matches the user's request, call the Skill tool with its name\n" +
+		"and follow the instructions it returns."
 
 	got := set.SystemPrompt()
 	if got != want {

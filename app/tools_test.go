@@ -134,7 +134,7 @@ func TestRunBashInvalidArgs(t *testing.T) {
 
 func TestFindTool(t *testing.T) {
 	for _, name := range []string{"Read", "Write", "RunBashCommand"} {
-		tool, ok := findTool(name)
+		tool, ok := findTool(baseTools, name)
 		if !ok {
 			t.Fatalf("findTool(%q) not found", name)
 		}
@@ -143,14 +143,14 @@ func TestFindTool(t *testing.T) {
 		}
 	}
 
-	if _, ok := findTool("Nope"); ok {
+	if _, ok := findTool(baseTools, "Nope"); ok {
 		t.Error("findTool(\"Nope\") found, want not found")
 	}
 }
 
 func TestToolDefinitions(t *testing.T) {
 	want := []string{"Read", "Write", "RunBashCommand"}
-	defs := toolDefinitions()
+	defs := toolDefinitions(baseTools)
 	if len(defs) != len(want) {
 		t.Fatalf("len(toolDefinitions()) = %d, want %d", len(defs), len(want))
 	}
@@ -166,5 +166,77 @@ func TestToolDefinitions(t *testing.T) {
 		if fn.Description.Value == "" {
 			t.Errorf("definition %d has empty description", i)
 		}
+	}
+}
+
+func TestRunSkill(t *testing.T) {
+	root := t.TempDir()
+	writeSkill(t, root, "apple", "---\nname: apple\ndescription: Deploys apple.\n---\n\nblueberry-$ARGUMENTS\n")
+
+	set, err := LoadSkills(root)
+	if err != nil {
+		t.Fatalf("LoadSkills() error = %v", err)
+	}
+
+	apple, ok := set.Find("apple")
+	if !ok {
+		t.Fatal("Find(\"apple\") not found")
+	}
+
+	got, err := runSkill(context.Background(), set, `{"name":"apple","args":"4127"}`)
+	if err != nil {
+		t.Fatalf("runSkill() error = %v", err)
+	}
+
+	want := skillPrefix(apple) + "blueberry-4127"
+	if got != want {
+		t.Errorf("runSkill() = %q, want %q", got, want)
+	}
+}
+
+func TestRunSkillErrors(t *testing.T) {
+	root := t.TempDir()
+	writeSkill(t, root, "apple", "---\nname: apple\ndescription: Apple.\n---\n\nblueberry\n")
+
+	set, err := LoadSkills(root)
+	if err != nil {
+		t.Fatalf("LoadSkills() error = %v", err)
+	}
+
+	tests := []struct {
+		name string
+		args string
+	}{
+		{"unknown skill", `{"name":"kiwi"}`},
+		{"missing name", `{}`},
+		{"invalid json", `{"name":`},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if _, err := runSkill(context.Background(), set, tt.args); err == nil {
+				t.Fatal("runSkill() error = nil, want non-nil")
+			}
+		})
+	}
+}
+
+func TestToolRegistryIncludesSkillTool(t *testing.T) {
+	root := t.TempDir()
+	writeSkill(t, root, "apple", "---\nname: apple\ndescription: Apple.\n---\n\nblueberry\n")
+
+	set, err := LoadSkills(root)
+	if err != nil {
+		t.Fatalf("LoadSkills() error = %v", err)
+	}
+
+	tools := toolRegistry(set)
+	if _, ok := findTool(tools, "Skill"); !ok {
+		t.Error("Skill tool not registered")
+	}
+
+	empty := toolRegistry(&SkillSet{})
+	if _, ok := findTool(empty, "Skill"); ok {
+		t.Error("Skill tool registered without skills")
 	}
 }

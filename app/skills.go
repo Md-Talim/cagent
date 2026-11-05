@@ -64,7 +64,11 @@ func (s *SkillSet) SystemPrompt() string {
 	for _, sk := range s.skills {
 		fmt.Fprintf(&b, "- %s: %s\n", sk.Name, sk.Description)
 	}
-	return strings.TrimRight(b.String(), "\n")
+	b.WriteString(
+		"\nIf a skill matches the user's request, call the Skill tool with its name\n" +
+			"and follow the instructions it returns.",
+	)
+	return b.String()
 }
 
 func (s *SkillSet) Find(name string) (Skill, bool) {
@@ -124,6 +128,10 @@ func (s *SkillSet) ExpandPrompt(prompt string) []string {
 	}
 
 	return messages
+}
+
+func (s *SkillSet) Len() int {
+	return len(s.skills)
 }
 
 func LoadSkills(root string) (*SkillSet, error) {

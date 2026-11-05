@@ -81,7 +81,7 @@ func TestAgentRunExecutesToolAndReturnsFinalMessage(t *testing.T) {
 			if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 				t.Errorf("decode request: %v", err)
 			}
-			if len(req.Tools) == len(tools) {
+			if len(req.Tools) == len(baseTools) {
 				sawTools.Store(true)
 			}
 			io.WriteString(w, toolCallResponse)

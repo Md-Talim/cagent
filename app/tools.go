@@ -21,9 +21,18 @@ func (t Tool) Definition() openai.ChatCompletionToolUnionParam {
 	})
 }
 
-var tools = []Tool{readTool, writeTool, bashTool}
+var baseTools = []Tool{readTool, writeTool, bashTool}
 
-func toolDefinitions() []openai.ChatCompletionToolUnionParam {
+func toolRegistry(skills *SkillSet) []Tool {
+	tools := make([]Tool, 0, len(baseTools)+1)
+	tools = append(tools, baseTools...)
+	if skills != nil && skills.Len() > 0 {
+		tools = append(tools, newSkillTool(skills))
+	}
+	return tools
+}
+
+func toolDefinitions(tools []Tool) []openai.ChatCompletionToolUnionParam {
 	defs := make([]openai.ChatCompletionToolUnionParam, len(tools))
 	for i, t := range tools {
 		defs[i] = t.Definition()
@@ -31,7 +40,7 @@ func toolDefinitions() []openai.ChatCompletionToolUnionParam {
 	return defs
 }
 
-func findTool(name string) (Tool, bool) {
+func findTool(tools []Tool, name string) (Tool, bool) {
 	for _, t := range tools {
 		if t.Name == name {
 			return t, true
