@@ -5,6 +5,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"path/filepath"
 
 	"github.com/openai/openai-go/v3"
 	"github.com/openai/openai-go/v3/option"
@@ -29,9 +30,15 @@ func main() {
 		panic("Env variable OPENROUTER_API_KEY not found")
 	}
 
+	skills, err := LoadSkills(filepath.Join(".claude", "skills"))
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "error loading skills: %v", err)
+		os.Exit(1)
+	}
+
 	client := openai.NewClient(option.WithAPIKey(apiKey), option.WithBaseURL(baseUrl))
 
-	agent := NewAgent(client, "anthropic/claude-haiku-4.5", prompt)
+	agent := NewAgent(client, "anthropic/claude-haiku-4.5", skills, prompt)
 	out, err := agent.Run(context.Background())
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)

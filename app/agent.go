@@ -16,14 +16,18 @@ type Agent struct {
 	messages []openai.ChatCompletionMessageParamUnion
 }
 
-func NewAgent(client openai.Client, model, prompt string) *Agent {
+func NewAgent(client openai.Client, model string, skills *SkillSet, prompt string) *Agent {
+	messages := make([]openai.ChatCompletionMessageParamUnion, 0, 2)
+	if sys := skills.SystemPrompt(); sys != "" {
+		messages = append(messages, openai.SystemMessage(sys))
+	}
+	messages = append(messages, openai.UserMessage(skills.ExpandPrompt(prompt)))
+
 	return &Agent{
-		client: client,
-		model:  model,
-		tools:  toolDefinitions(),
-		messages: []openai.ChatCompletionMessageParamUnion{
-			openai.UserMessage(prompt),
-		},
+		client:   client,
+		model:    model,
+		tools:    toolDefinitions(),
+		messages: messages,
 	}
 }
 
