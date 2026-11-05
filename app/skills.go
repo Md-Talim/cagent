@@ -5,7 +5,9 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 
 	"gopkg.in/yaml.v3"
@@ -54,7 +56,7 @@ func (s *SkillSet) Find(name string) (Skill, bool) {
 }
 
 func (s *SkillSet) ExpandPrompt(prompt string) string {
-	name, _, ok := parseSlashCommand(prompt)
+	name, args, ok := parseSlashCommand(prompt)
 	if !ok {
 		return prompt
 	}
@@ -71,7 +73,7 @@ func (s *SkillSet) ExpandPrompt(prompt string) string {
 		return prompt
 	}
 
-	return body
+	return parseSkillBody(body, args)
 }
 
 func LoadSkills(root string) (*SkillSet, error) {
@@ -168,4 +170,38 @@ func parseSlashCommand(prompt string) (name, args string, ok bool) {
 		return trimmed, "", true
 	}
 	return trimmed[:idx], strings.TrimSpace(trimmed[idx+1:]), true
+}
+
+var argumentPlaceholder = regexp.MustCompile(`\$ARGUMENTS\[(\d+)\]|\$ARGUMENTS|\$(\d+)`)
+
+func parseSkillBody(body, rawArgs string) string {
+	args := strings.Fields(rawArgs)
+
+	return argumentPlaceholder.ReplaceAllStringFunc(body, func(match string) string {
+		switch {
+		case strings.HasPrefix(match, "$ARGUMENTS["):
+			index := strings.TrimSuffix(strings.TrimPrefix(match, "$ARGUMENTS["), "]")
+			i, err := strconv.Atoi(index)
+			if err != nil {
+				return match
+			}
+			return argAt(args, i)
+		case match == "$ARGUMENTS":
+			return rawArgs
+
+		default:
+			i, err := strconv.Atoi(strings.TrimPrefix(match, "$"))
+			if err != nil {
+				return match
+			}
+			return argAt(args, i)
+		}
+	})
+}
+
+func argAt(args []string, i int) string {
+	if i < 0 || i >= len(args) {
+		return ""
+	}
+	return args[i]
 }

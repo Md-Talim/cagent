@@ -321,3 +321,71 @@ func TestNewAgentWithoutSkillsHasNoSystemMessage(t *testing.T) {
 		t.Errorf("message = %+v, want user message", msgs[0])
 	}
 }
+
+func TestParseSkillBody(t *testing.T) {
+	tests := []struct {
+		name    string
+		body    string
+		rawArgs string
+		want    string
+	}{
+		{"full arguments", "Deploy $ARGUMENTS", "staging eu-west", "Deploy staging eu-west"},
+		{"positional", "Deploy to $0 in region $1", "staging eu-west", "Deploy to staging in region eu-west"},
+		{"reversed", "$1 $0", "mango pear", "pear mango"},
+		{"indexed", "$ARGUMENTS[0] then $ARGUMENTS[1]", "a b", "a then b"},
+		{"indexed before bare", "$ARGUMENTS[0]", "a b", "a"},
+		{"mixed forms", "$0 / $ARGUMENTS / $1", "a b", "a / a b / b"},
+		{"repeated placeholder", "$0 $0", "a", "a a"},
+		{"missing positional", "x$5y", "a b", "xy"},
+		{"missing indexed", "$ARGUMENTS[9]", "a", ""},
+		{"double digit index", "$10", "a b", ""},
+		{"no arguments no spacing", "$0$1$ARGUMENTS", "", ""},
+		{"no arguments keeps spacing", "$0 $1", "", " "},
+		{"literal dollar", "cost: $", "", "cost: $"},
+		{"unknown dollar name", "$foo", "", "$foo"},
+		{"argument is not re-expanded", "$0", "$1", "$1"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := parseSkillBody(tt.body, tt.rawArgs); got != tt.want {
+				t.Errorf("parseSkillBody(%q, %q) = %q, want %q", tt.body, tt.rawArgs, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestExpandPromptSubstitutesArguments(t *testing.T) {
+	root := t.TempDir()
+	writeSkill(t, root, "apple", `---
+name: apple
+description: Deploys apple.
+---
+
+Deploy to $0 in region $1. Full request was: $ARGUMENTS
+`)
+
+	set, err := LoadSkills(root)
+	if err != nil {
+		t.Fatalf("LoadSkills() error = %v", err)
+	}
+
+	want := "Deploy to staging in region eu-west. Full request was: staging eu-west"
+	if got := set.ExpandPrompt("/apple staging eu-west"); got != want {
+		t.Errorf("ExpandPrompt() = %q, want %q", got, want)
+	}
+}
+
+func TestExpandPromptWithoutArguments(t *testing.T) {
+	root := t.TempDir()
+	writeSkill(t, root, "apple", "---\nname: apple\ndescription: Deploys apple.\n---\n\nArgs: [$ARGUMENTS] [$0]\n")
+
+	set, err := LoadSkills(root)
+	if err != nil {
+		t.Fatalf("LoadSkills() error = %v", err)
+	}
+
+	if got, want := set.ExpandPrompt("/apple"), "Args: [] []"; got != want {
+		t.Errorf("ExpandPrompt() = %q, want %q", got, want)
+	}
+}
