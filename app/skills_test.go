@@ -1,0 +1,323 @@
+package main
+
+import (
+	"encoding/json"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+
+	"github.com/openai/openai-go/v3"
+)
+
+func writeSkill(t *testing.T, root, folder, content string) {
+	t.Helper()
+	dir := filepath.Join(root, folder)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatalf("mkdir %s: %v", dir, err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "SKILL.md"), []byte(content), 0o644); err != nil {
+		t.Fatalf("write skill %s: %v", folder, err)
+	}
+}
+
+func TestParseSkillFile(t *testing.T) {
+	tests := []struct {
+		name      string
+		text      string
+		wantMeta  skillFrontmatter
+		wantBody  string
+		wantError bool
+	}{
+		{
+			name:     "normal frontmatter",
+			text:     "---\nname: apple\ndescription: Deploys apple.\n---\n\nRun the deploy.\n",
+			wantMeta: skillFrontmatter{Name: "apple", Description: "Deploys apple."},
+			wantBody: "Run the deploy.",
+		},
+		{
+			name:     "crlf line endings",
+			text:     "---\r\nname: apple\r\ndescription: Deploys apple.\r\n---\r\n\r\nRun the deploy.\r\n",
+			wantMeta: skillFrontmatter{Name: "apple", Description: "Deploys apple."},
+			wantBody: "Run the deploy.",
+		},
+		{
+			name:     "bom at start",
+			text:     "\ufeff---\nname: apple\ndescription: Deploys apple.\n---\nBody\n",
+			wantMeta: skillFrontmatter{Name: "apple", Description: "Deploys apple."},
+			wantBody: "Body",
+		},
+		{
+			name:     "quoted description with colon",
+			text:     "---\nname: apple\ndescription: \"Deploys apple: production\"\n---\nBody\n",
+			wantMeta: skillFrontmatter{Name: "apple", Description: "Deploys apple: production"},
+			wantBody: "Body",
+		},
+		{
+			name:     "folded description",
+			text:     "---\nname: apple\ndescription: >-\n  Deploys apple\n  to production.\n---\nBody\n",
+			wantMeta: skillFrontmatter{Name: "apple", Description: "Deploys apple to production."},
+			wantBody: "Body",
+		},
+		{
+			name:     "body keeps blank lines",
+			text:     "---\nname: apple\ndescription: Deploys apple.\n---\n\nline one\n\nline two\n",
+			wantMeta: skillFrontmatter{Name: "apple", Description: "Deploys apple."},
+			wantBody: "line one\n\nline two",
+		},
+		{
+			name:      "missing opening delimiter",
+			text:      "name: apple\n---\nBody\n",
+			wantError: true,
+		},
+		{
+			name:      "missing closing delimiter",
+			text:      "---\nname: apple\nBody\n",
+			wantError: true,
+		},
+		{
+			name:      "invalid yaml",
+			text:      "---\nname: [apple\ndescription: Deploys apple.\n---\nBody\n",
+			wantError: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			meta, body, err := parseSkillFile(tt.text)
+			if tt.wantError {
+				if err == nil {
+					t.Fatal("parseSkillFile() error = nil, want non-nil")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("parseSkillFile() error = %v", err)
+			}
+			if meta != tt.wantMeta {
+				t.Errorf("meta = %+v, want %+v", meta, tt.wantMeta)
+			}
+			if body != tt.wantBody {
+				t.Errorf("body = %q, want %q", body, tt.wantBody)
+			}
+		})
+	}
+}
+
+func TestLoadSkillsMissingDirectory(t *testing.T) {
+	set, err := LoadSkills(filepath.Join(t.TempDir(), "does-not-exist"))
+	if err != nil {
+		t.Fatalf("LoadSkills() error = %v", err)
+	}
+	if got := set.SystemPrompt(); got != "" {
+		t.Errorf("SystemPrompt() = %q, want empty", got)
+	}
+	if _, ok := set.Find("apple"); ok {
+		t.Error("Find(\"apple\") found a skill, want none")
+	}
+}
+
+func TestLoadSkills(t *testing.T) {
+	root := t.TempDir()
+	writeSkill(t, root, "grape", "---\nname: grape\ndescription: Runs grape tests.\n---\n\nGrape body\n")
+	writeSkill(t, root, "apple", "---\nname: apple\ndescription: Deploys apple.\n---\n\nApple body\n")
+	writeSkill(t, root, "broken", "not a skill file")
+
+	if err := os.WriteFile(filepath.Join(root, "README.txt"), []byte("ignore me"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(filepath.Join(root, "empty"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	set, err := LoadSkills(root)
+	if err != nil {
+		t.Fatalf("LoadSkills() error = %v", err)
+	}
+
+	names := make([]string, 0, 2)
+	for _, sk := range set.skills {
+		names = append(names, sk.Name)
+	}
+	if got := strings.Join(names, ","); got != "apple,grape" {
+		t.Fatalf("skill names = %q, want %q", got, "apple,grape")
+	}
+
+	apple, ok := set.Find("apple")
+	if !ok {
+		t.Fatal("Find(\"apple\") not found")
+	}
+	if apple.Description != "Deploys apple." {
+		t.Errorf("apple description = %q", apple.Description)
+	}
+	if apple.Folder != "apple" {
+		t.Errorf("apple folder = %q", apple.Folder)
+	}
+
+	if _, ok := set.Find("broken"); ok {
+		t.Error("Find(\"broken\") found malformed skill, want none")
+	}
+	if _, ok := set.Find("empty"); ok {
+		t.Error("Find(\"empty\") found empty skill, want none")
+	}
+}
+
+func TestLoadSkillsFallsBackToFolderName(t *testing.T) {
+	root := t.TempDir()
+	writeSkill(t, root, "mango", "---\ndescription: A mango skill.\n---\nBody\n")
+
+	set, err := LoadSkills(root)
+	if err != nil {
+		t.Fatalf("LoadSkills() error = %v", err)
+	}
+
+	mango, ok := set.Find("mango")
+	if !ok {
+		t.Fatal("Find(\"mango\") not found")
+	}
+	if mango.Name != "mango" {
+		t.Errorf("name = %q, want %q", mango.Name, "mango")
+	}
+}
+
+func TestSystemPrompt(t *testing.T) {
+	root := t.TempDir()
+	writeSkill(t, root, "apple", "---\nname: apple\ndescription: Deploys apple.\n---\n\nApple body\n")
+	writeSkill(t, root, "grape", "---\nname: grape\ndescription: Runs grape tests.\n---\n\nGrape body\n")
+
+	set, err := LoadSkills(root)
+	if err != nil {
+		t.Fatalf("LoadSkills() error = %v", err)
+	}
+
+	want := "You have access to the following skills:\n\n" +
+		"- apple: Deploys apple.\n" +
+		"- grape: Runs grape tests."
+
+	got := set.SystemPrompt()
+	if got != want {
+		t.Errorf("SystemPrompt() = %q, want %q", got, want)
+	}
+	if strings.Contains(got, "Apple body") || strings.Contains(got, "Grape body") {
+		t.Error("SystemPrompt() contains a skill body, want frontmatter only")
+	}
+}
+
+func TestExpandPrompt(t *testing.T) {
+	root := t.TempDir()
+	writeSkill(t, root, "apple", "---\nname: apple\ndescription: Deploys apple.\n---\n\nRespond with exactly one word: blueberry\n\nDo not add anything else.\n")
+	writeSkill(t, root, "grape", "---\nname: grape\ndescription: Runs grape tests.\n---\n\nRespond with exactly one word: grapefruit\n")
+
+	set, err := LoadSkills(root)
+	if err != nil {
+		t.Fatalf("LoadSkills() error = %v", err)
+	}
+
+	const appleBody = "Respond with exactly one word: blueberry\n\nDo not add anything else."
+
+	tests := []struct {
+		name   string
+		prompt string
+		want   string
+	}{
+		{"slash command", "/apple", appleBody},
+		{"slash command with args", "/apple please deploy", appleBody},
+		{"normal prompt", "Which skill fits?", "Which skill fits?"},
+		{"unknown skill", "/mango", "/mango"},
+		{"slash only", "/", "/"},
+		{"empty prompt", "", ""},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := set.ExpandPrompt(tt.prompt); got != tt.want {
+				t.Errorf("ExpandPrompt(%q) = %q, want %q", tt.prompt, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestParseSlashCommand(t *testing.T) {
+	tests := []struct {
+		prompt   string
+		wantName string
+		wantArgs string
+		wantOK   bool
+	}{
+		{"/apple", "apple", "", true},
+		{"/apple now please", "apple", "now please", true},
+		{"/apple\nnow", "apple", "now", true},
+		{"hello", "", "", false},
+		{"/", "", "", false},
+		{"", "", "", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.prompt, func(t *testing.T) {
+			name, args, ok := parseSlashCommand(tt.prompt)
+			if name != tt.wantName || args != tt.wantArgs || ok != tt.wantOK {
+				t.Errorf("parseSlashCommand(%q) = (%q, %q, %v), want (%q, %q, %v)",
+					tt.prompt, name, args, ok, tt.wantName, tt.wantArgs, tt.wantOK)
+			}
+		})
+	}
+}
+
+type testMessage struct {
+	Role    string `json:"role"`
+	Content string `json:"content"`
+}
+
+func agentMessages(t *testing.T, agent *Agent) []testMessage {
+	t.Helper()
+	data, err := json.Marshal(agent.messages)
+	if err != nil {
+		t.Fatalf("marshal messages: %v", err)
+	}
+	var msgs []testMessage
+	if err := json.Unmarshal(data, &msgs); err != nil {
+		t.Fatalf("unmarshal messages: %v", err)
+	}
+	return msgs
+}
+
+func TestNewAgentInjectsSystemPromptAndSkillBody(t *testing.T) {
+	root := t.TempDir()
+	writeSkill(t, root, "apple", "---\nname: apple\ndescription: Deploys apple.\n---\n\nRespond with exactly one word: blueberry\n")
+
+	set, err := LoadSkills(root)
+	if err != nil {
+		t.Fatalf("LoadSkills() error = %v", err)
+	}
+
+	agent := NewAgent(openai.Client{}, "test-model", set, "/apple")
+	msgs := agentMessages(t, agent)
+
+	if len(msgs) != 2 {
+		t.Fatalf("len(messages) = %d, want 2", len(msgs))
+	}
+	if msgs[0].Role != "system" {
+		t.Errorf("messages[0].role = %q, want system", msgs[0].Role)
+	}
+	if !strings.Contains(msgs[0].Content, "- apple: Deploys apple.") {
+		t.Errorf("system prompt = %q, want apple in skill list", msgs[0].Content)
+	}
+	if msgs[1].Role != "user" {
+		t.Errorf("messages[1].role = %q, want user", msgs[1].Role)
+	}
+	if msgs[1].Content != "Respond with exactly one word: blueberry" {
+		t.Errorf("user message = %q, want skill body", msgs[1].Content)
+	}
+}
+
+func TestNewAgentWithoutSkillsHasNoSystemMessage(t *testing.T) {
+	agent := NewAgent(openai.Client{}, "test-model", &SkillSet{}, "hello")
+	msgs := agentMessages(t, agent)
+
+	if len(msgs) != 1 {
+		t.Fatalf("len(messages) = %d, want 1", len(msgs))
+	}
+	if msgs[0].Role != "user" || msgs[0].Content != "hello" {
+		t.Errorf("message = %+v, want user message", msgs[0])
+	}
+}
