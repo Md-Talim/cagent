@@ -21,7 +21,9 @@ func NewAgent(client openai.Client, model string, skills *SkillSet, prompt strin
 	if sys := skills.SystemPrompt(); sys != "" {
 		messages = append(messages, openai.SystemMessage(sys))
 	}
-	messages = append(messages, openai.UserMessage(skills.ExpandPrompt(prompt)))
+	for _, content := range skills.ExpandPrompt(prompt) {
+		messages = append(messages, openai.UserMessage(content))
+	}
 
 	return &Agent{
 		client:   client,

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -203,6 +204,14 @@ func TestSystemPrompt(t *testing.T) {
 	}
 }
 
+func assertExpanded(t *testing.T, set *SkillSet, prompt string, want ...string) {
+	t.Helper()
+	got := set.ExpandPrompt(prompt)
+	if !slices.Equal(got, want) {
+		t.Errorf("ExpandPrompt(%q) = %q, want %q", prompt, got, want)
+	}
+}
+
 func TestExpandPrompt(t *testing.T) {
 	root := t.TempDir()
 	writeSkill(t, root, "apple", "---\nname: apple\ndescription: Deploys apple.\n---\n\nRespond with exactly one word: blueberry\n\nDo not add anything else.\n")
@@ -215,26 +224,12 @@ func TestExpandPrompt(t *testing.T) {
 
 	const appleBody = "Respond with exactly one word: blueberry\n\nDo not add anything else."
 
-	tests := []struct {
-		name   string
-		prompt string
-		want   string
-	}{
-		{"slash command", "/apple", appleBody},
-		{"slash command with args", "/apple please deploy", appleBody},
-		{"normal prompt", "Which skill fits?", "Which skill fits?"},
-		{"unknown skill", "/mango", "/mango"},
-		{"slash only", "/", "/"},
-		{"empty prompt", "", ""},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if got := set.ExpandPrompt(tt.prompt); got != tt.want {
-				t.Errorf("ExpandPrompt(%q) = %q, want %q", tt.prompt, got, tt.want)
-			}
-		})
-	}
+	assertExpanded(t, set, "/apple", appleBody)
+	assertExpanded(t, set, "/apple please deploy", appleBody)
+	assertExpanded(t, set, "Which skill fits?", "Which skill fits?")
+	assertExpanded(t, set, "/mango", "/mango")
+	assertExpanded(t, set, "/", "/")
+	assertExpanded(t, set, "", "")
 }
 
 func TestParseSlashCommand(t *testing.T) {
@@ -371,9 +366,7 @@ Deploy to $0 in region $1. Full request was: $ARGUMENTS
 	}
 
 	want := "Deploy to staging in region eu-west. Full request was: staging eu-west"
-	if got := set.ExpandPrompt("/apple staging eu-west"); got != want {
-		t.Errorf("ExpandPrompt() = %q, want %q", got, want)
-	}
+	assertExpanded(t, set, "/apple staging eu-west", want)
 }
 
 func TestExpandPromptWithoutArguments(t *testing.T) {
@@ -385,7 +378,87 @@ func TestExpandPromptWithoutArguments(t *testing.T) {
 		t.Fatalf("LoadSkills() error = %v", err)
 	}
 
-	if got, want := set.ExpandPrompt("/apple"), "Args: [] []"; got != want {
-		t.Errorf("ExpandPrompt() = %q, want %q", got, want)
+	assertExpanded(t, set, "/apple", "Args: [] []")
+}
+
+func TestExpandPromptStacksSkills(t *testing.T) {
+	root := t.TempDir()
+	writeSkill(t, root, "apple", "---\nname: apple\ndescription: Apple skill.\n---\n\nblueberry-$ARGUMENTS\n")
+	writeSkill(t, root, "grape", "---\nname: grape\ndescription: Grape skill.\n---\n\ncherry-$ARGUMENTS\n")
+	writeSkill(t, root, "pear", "---\nname: pear\ndescription: Pear skill.\n---\n\npear-$ARGUMENTS\n")
+
+	set, err := LoadSkills(root)
+	if err != nil {
+		t.Fatalf("LoadSkills() error = %v", err)
+	}
+
+	tests := []struct {
+		name   string
+		prompt string
+		want   []string
+	}{
+		{
+			name:   "two skills share arguments",
+			prompt: "/apple /grape 4127",
+			want:   []string{"blueberry-4127", "cherry-4127"},
+		},
+		{
+			name:   "stops at first argument",
+			prompt: "/apple 4127 /grape",
+			want:   []string{"blueberry-4127 /grape"},
+		},
+		{
+			name:   "stops at unknown skill",
+			prompt: "/apple /kiwi 4127",
+			want:   []string{"blueberry-/kiwi 4127"},
+		},
+		{
+			name:   "unknown first skill",
+			prompt: "/kiwi /apple 4127",
+			want:   []string{"/kiwi /apple 4127"},
+		},
+		{
+			name:   "no arguments",
+			prompt: "/apple /grape",
+			want:   []string{"blueberry-", "cherry-"},
+		},
+		{
+			name:   "never invoked skill stays out",
+			prompt: "/apple /grape 4127",
+			want:   []string{"blueberry-4127", "cherry-4127"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assertExpanded(t, set, tt.prompt, tt.want...)
+		})
+	}
+}
+
+func TestNewAgentStacksSkillMessages(t *testing.T) {
+	root := t.TempDir()
+	writeSkill(t, root, "apple", "---\nname: apple\ndescription: Apple skill.\n---\n\nblueberry-$ARGUMENTS\n")
+	writeSkill(t, root, "grape", "---\nname: grape\ndescription: Grape skill.\n---\n\ncherry-$ARGUMENTS\n")
+
+	set, err := LoadSkills(root)
+	if err != nil {
+		t.Fatalf("LoadSkills() error = %v", err)
+	}
+
+	agent := NewAgent(openai.Client{}, "test-model", set, "/apple /grape 4127")
+	msgs := agentMessages(t, agent)
+
+	if len(msgs) != 3 {
+		t.Fatalf("len(messages) = %d, want 3", len(msgs))
+	}
+	if msgs[0].Role != "system" {
+		t.Errorf("messages[0].role = %q, want system", msgs[0].Role)
+	}
+	if msgs[1].Role != "user" || msgs[1].Content != "blueberry-4127" {
+		t.Errorf("messages[1] = %+v", msgs[1])
+	}
+	if msgs[2].Role != "user" || msgs[2].Content != "cherry-4127" {
+		t.Errorf("messages[2] = %+v", msgs[2])
 	}
 }

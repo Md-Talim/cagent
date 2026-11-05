@@ -55,25 +55,54 @@ func (s *SkillSet) Find(name string) (Skill, bool) {
 	return Skill{}, false
 }
 
-func (s *SkillSet) ExpandPrompt(prompt string) string {
-	name, args, ok := parseSlashCommand(prompt)
-	if !ok {
-		return prompt
+func (s *SkillSet) ExpandPrompt(prompt string) []string {
+	pos := 0
+	var skills []Skill
+
+	for {
+		for pos < len(prompt) && isSpace(prompt[pos]) {
+			pos++
+		}
+		if pos >= len(prompt) || prompt[pos] != '/' {
+			break
+		}
+
+		end := pos
+		for end < len(prompt) && !isSpace(prompt[end]) {
+			end++
+		}
+
+		name := prompt[pos+1 : end]
+		skill, found := s.Find(name)
+		if !found {
+			break
+		}
+
+		skills = append(skills, skill)
+		pos = end
 	}
 
-	skill, found := s.Find(name)
-	if !found {
-		fmt.Fprintf(os.Stderr, "[skills] unknown skill %q\n", name)
-		return prompt
+	if len(skills) == 0 {
+		return []string{prompt}
 	}
 
-	body, err := skill.Body()
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "[skills] load %q: %v\n", name, err)
-		return prompt
+	args := strings.TrimSpace(prompt[pos:])
+
+	messages := make([]string, 0, len(skills))
+	for _, skill := range skills {
+		body, err := skill.Body()
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "[skills] load %q: %v\n", skill.Folder, err)
+			continue
+		}
+		messages = append(messages, parseSkillBody(body, args))
 	}
 
-	return parseSkillBody(body, args)
+	if len(messages) == 0 {
+		return []string{prompt}
+	}
+
+	return messages
 }
 
 func LoadSkills(root string) (*SkillSet, error) {
@@ -204,4 +233,8 @@ func argAt(args []string, i int) string {
 		return ""
 	}
 	return args[i]
+}
+
+func isSpace(b byte) bool {
+	return b == ' ' || b == '\t' || b == '\n' || b == '\r'
 }
