@@ -17,6 +17,7 @@ type Skill struct {
 	Name        string
 	Description string
 	Dir         string // e.g. .claude/skills/apple
+	Context     string // e.g. "fork"
 }
 
 func (s *Skill) Body() (string, error) {
@@ -48,6 +49,10 @@ func (s Skill) FilePath() string {
 
 func (s Skill) FolderName() string {
 	return filepath.Base(s.Dir)
+}
+
+func (s Skill) IsForked() bool {
+	return s.Context == "fork"
 }
 
 type SkillSet struct {
@@ -105,6 +110,9 @@ func (s *SkillSet) ExpandPrompt(prompt string) []string {
 
 		skills = append(skills, skill)
 		pos = end
+		if skill.IsForked() {
+			break
+		}
 	}
 
 	if len(skills) == 0 {
@@ -171,6 +179,7 @@ func LoadSkills(root string) (*SkillSet, error) {
 			Name:        name,
 			Description: meta.Description,
 			Dir:         dir,
+			Context:     meta.Context,
 		})
 	}
 
@@ -182,6 +191,7 @@ func LoadSkills(root string) (*SkillSet, error) {
 type skillFrontmatter struct {
 	Name        string `yaml:"name"`
 	Description string `yaml:"description"`
+	Context     string `yaml:"context"`
 }
 
 func parseSkillFile(text string) (skillFrontmatter, string, error) {

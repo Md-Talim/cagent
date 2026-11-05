@@ -90,6 +90,12 @@ func TestParseSkillFile(t *testing.T) {
 			text:      "---\nname: [apple\ndescription: Deploys apple.\n---\nBody\n",
 			wantError: true,
 		},
+		{
+			name:     "fork context",
+			text:     "---\nname: apple\ndescription: Apple.\ncontext: fork\n---\nBody\n",
+			wantMeta: skillFrontmatter{Name: "apple", Description: "Apple.", Context: "fork"},
+			wantBody: "Body",
+		},
 	}
 
 	for _, tt := range tests {

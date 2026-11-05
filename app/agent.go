@@ -26,7 +26,20 @@ func NewAgent(client openai.Client, model string, skills *SkillSet, prompt strin
 		messages = append(messages, openai.UserMessage(content))
 	}
 
-	tools := toolRegistry(skills)
+	runSubagent := func(ctx context.Context, prompt string) (string, error) {
+		sub := &Agent{
+			client:   client,
+			model:    model,
+			tools:    baseTools,
+			toolDefs: toolDefinitions(baseTools),
+			messages: []openai.ChatCompletionMessageParamUnion{
+				openai.UserMessage(prompt),
+			},
+		}
+		return sub.Run(ctx)
+	}
+
+	tools := toolRegistry(skills, runSubagent)
 
 	return &Agent{
 		client:   client,

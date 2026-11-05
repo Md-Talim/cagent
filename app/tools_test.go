@@ -183,7 +183,12 @@ func TestRunSkill(t *testing.T) {
 		t.Fatal("Find(\"apple\") not found")
 	}
 
-	got, err := runSkill(context.Background(), set, `{"name":"apple","args":"4127"}`)
+	runner := func(context.Context, string) (string, error) {
+		t.Fatal("subagent runner called for a regular skill")
+		return "", nil
+	}
+
+	got, err := runSkill(context.Background(), set, runner, `{"name":"apple","args":"4127"}`)
 	if err != nil {
 		t.Fatalf("runSkill() error = %v", err)
 	}
@@ -214,7 +219,7 @@ func TestRunSkillErrors(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if _, err := runSkill(context.Background(), set, tt.args); err == nil {
+			if _, err := runSkill(context.Background(), set, nil, tt.args); err == nil {
 				t.Fatal("runSkill() error = nil, want non-nil")
 			}
 		})
@@ -230,13 +235,57 @@ func TestToolRegistryIncludesSkillTool(t *testing.T) {
 		t.Fatalf("LoadSkills() error = %v", err)
 	}
 
-	tools := toolRegistry(set)
+	tools := toolRegistry(set, nil)
 	if _, ok := findTool(tools, "Skill"); !ok {
 		t.Error("Skill tool not registered")
 	}
 
-	empty := toolRegistry(&SkillSet{})
+	empty := toolRegistry(&SkillSet{}, nil)
 	if _, ok := findTool(empty, "Skill"); ok {
 		t.Error("Skill tool registered without skills")
 	}
+}
+
+func TestRunSkillForked(t *testing.T) {
+	root := t.TempDir()
+	writeSkill(t, root, "apple", "---\nname: apple\ndescription: Handles on-call.\ncontext: fork\n---\n\nRespond with exactly one word: $ARGUMENTS\n")
+
+	set, err := LoadSkills(root)
+	if err != nil {
+		t.Fatalf("LoadSkills() error = %v", err)
+	}
+
+	var gotPrompt string
+	runner := func(_ context.Context, prompt string) (string, error) {
+		gotPrompt = prompt
+		return "blueberry", nil
+	}
+
+	got, err := runSkill(context.Background(), set, runner, `{"name":"apple","args":"blueberry"}`)
+	if err != nil {
+		t.Fatalf("runSkill() error = %v", err)
+	}
+
+	if gotPrompt != "Respond with exactly one word: blueberry" {
+		t.Errorf("subagent prompt = %q", gotPrompt)
+	}
+
+	want := "Skill apple ran in a separate context and returned: blueberry"
+	if got != want {
+		t.Errorf("runSkill() = %q, want %q", got, want)
+	}
+}
+
+func TestExpandPromptForkStopsStacking(t *testing.T) {
+	root := t.TempDir()
+	writeSkill(t, root, "apple", "---\nname: apple\ndescription: Apple.\ncontext: fork\n---\n\napple-$ARGUMENTS\n")
+	writeSkill(t, root, "grape", "---\nname: grape\ndescription: Grape.\n---\n\ngrape-$ARGUMENTS\n")
+
+	set, err := LoadSkills(root)
+	if err != nil {
+		t.Fatalf("LoadSkills() error = %v", err)
+	}
+
+	apple, _ := set.Find("apple")
+	assertExpanded(t, set, "/apple /grape 4127", skillPrefix(apple)+"apple-/grape 4127")
 }
