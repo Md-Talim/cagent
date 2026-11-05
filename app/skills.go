@@ -16,17 +16,38 @@ import (
 type Skill struct {
 	Name        string
 	Description string
-	Folder      string
-	Path        string
+	Dir         string // e.g. .claude/skills/apple
 }
 
 func (s *Skill) Body() (string, error) {
-	data, err := os.ReadFile(s.Path)
+	data, err := os.ReadFile(s.FilePath())
 	if err != nil {
 		return "", err
 	}
 	_, body, err := parseSkillFile(string(data))
 	return body, err
+}
+
+func (s *Skill) Render(args string) (string, error) {
+	body, err := s.Body()
+	if err != nil {
+		return "", err
+	}
+
+	return fmt.Sprintf(
+		"Skill: %s (located at %s)\nPaths in the instructions below are relative to that folder.\n\n%s",
+		s.Name,
+		filepath.ToSlash(s.Dir),
+		parseSkillBody(body, args),
+	), nil
+}
+
+func (s Skill) FilePath() string {
+	return filepath.Join(s.Dir, "SKILL.md")
+}
+
+func (s Skill) FolderName() string {
+	return filepath.Base(s.Dir)
 }
 
 type SkillSet struct {
@@ -48,7 +69,7 @@ func (s *SkillSet) SystemPrompt() string {
 
 func (s *SkillSet) Find(name string) (Skill, bool) {
 	for _, sk := range s.skills {
-		if sk.Folder == name || sk.Name == name {
+		if sk.FolderName() == name || sk.Name == name {
 			return sk, true
 		}
 	}
@@ -90,12 +111,12 @@ func (s *SkillSet) ExpandPrompt(prompt string) []string {
 
 	messages := make([]string, 0, len(skills))
 	for _, skill := range skills {
-		body, err := skill.Body()
+		content, err := skill.Render(args)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "[skills] load %q: %v\n", skill.Folder, err)
+			fmt.Fprintf(os.Stderr, "[skills] load %q: %v\n", skill.Name, err)
 			continue
 		}
-		messages = append(messages, parseSkillBody(body, args))
+		messages = append(messages, content)
 	}
 
 	if len(messages) == 0 {
@@ -120,8 +141,8 @@ func LoadSkills(root string) (*SkillSet, error) {
 			continue
 		}
 
-		path := filepath.Join(root, entry.Name(), "SKILL.md")
-		data, err := os.ReadFile(path)
+		dir := filepath.Join(root, entry.Name())
+		data, err := os.ReadFile(filepath.Join(dir, "SKILL.md"))
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "[skills] skipping %s: %v\n", entry.Name(), err)
 			continue
@@ -141,8 +162,7 @@ func LoadSkills(root string) (*SkillSet, error) {
 		skills = append(skills, Skill{
 			Name:        name,
 			Description: meta.Description,
-			Folder:      entry.Name(),
-			Path:        path,
+			Dir:         dir,
 		})
 	}
 
@@ -183,22 +203,6 @@ func parseSkillFile(text string) (skillFrontmatter, string, error) {
 
 	body := strings.TrimSpace(strings.Join(lines[end+1:], "\n"))
 	return meta, body, nil
-}
-
-func parseSlashCommand(prompt string) (name, args string, ok bool) {
-	if !strings.HasPrefix(prompt, "/") {
-		return "", "", false
-	}
-	trimmed := strings.TrimPrefix(prompt, "/")
-	if trimmed == "" {
-		return "", "", false
-	}
-
-	idx := strings.IndexAny(trimmed, " \t\n")
-	if idx == -1 {
-		return trimmed, "", true
-	}
-	return trimmed[:idx], strings.TrimSpace(trimmed[idx+1:]), true
 }
 
 var argumentPlaceholder = regexp.MustCompile(`\$ARGUMENTS\[(\d+)\]|\$ARGUMENTS|\$(\d+)`)

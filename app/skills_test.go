@@ -151,8 +151,8 @@ func TestLoadSkills(t *testing.T) {
 	if apple.Description != "Deploys apple." {
 		t.Errorf("apple description = %q", apple.Description)
 	}
-	if apple.Folder != "apple" {
-		t.Errorf("apple folder = %q", apple.Folder)
+	if apple.FolderName() != "apple" {
+		t.Errorf("apple folder = %q", apple.FolderName())
 	}
 
 	if _, ok := set.Find("broken"); ok {
@@ -230,32 +230,6 @@ func TestExpandPrompt(t *testing.T) {
 	assertExpanded(t, set, "/mango", "/mango")
 	assertExpanded(t, set, "/", "/")
 	assertExpanded(t, set, "", "")
-}
-
-func TestParseSlashCommand(t *testing.T) {
-	tests := []struct {
-		prompt   string
-		wantName string
-		wantArgs string
-		wantOK   bool
-	}{
-		{"/apple", "apple", "", true},
-		{"/apple now please", "apple", "now please", true},
-		{"/apple\nnow", "apple", "now", true},
-		{"hello", "", "", false},
-		{"/", "", "", false},
-		{"", "", "", false},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.prompt, func(t *testing.T) {
-			name, args, ok := parseSlashCommand(tt.prompt)
-			if name != tt.wantName || args != tt.wantArgs || ok != tt.wantOK {
-				t.Errorf("parseSlashCommand(%q) = (%q, %q, %v), want (%q, %q, %v)",
-					tt.prompt, name, args, ok, tt.wantName, tt.wantArgs, tt.wantOK)
-			}
-		})
-	}
 }
 
 type testMessage struct {
