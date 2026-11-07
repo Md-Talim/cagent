@@ -66,7 +66,7 @@ func newTestAgent(t *testing.T, handler http.Handler) *Agent {
 	t.Cleanup(srv.Close)
 
 	client := openai.NewClient(option.WithAPIKey("test-key"), option.WithBaseURL(srv.URL))
-	return NewAgent(client, "test-model", &SkillSet{}, "say hi")
+	return NewAgent(client, "test-model", &SkillSet{}, nil, "say hi")
 }
 
 func TestAgentRunExecutesToolAndReturnsFinalMessage(t *testing.T) {

@@ -288,7 +288,7 @@ func TestNewAgentInjectsSystemPromptAndSkillBody(t *testing.T) {
 	}
 	want := skillPrefix(apple) + "Respond with exactly one word: blueberry"
 
-	agent := NewAgent(openai.Client{}, "test-model", set, "/apple")
+	agent := NewAgent(openai.Client{}, "test-model", set, nil, "/apple")
 	msgs := agentMessages(t, agent)
 
 	if len(msgs) != 2 {
@@ -309,7 +309,7 @@ func TestNewAgentInjectsSystemPromptAndSkillBody(t *testing.T) {
 }
 
 func TestNewAgentWithoutSkillsHasNoSystemMessage(t *testing.T) {
-	agent := NewAgent(openai.Client{}, "test-model", &SkillSet{}, "hello")
+	agent := NewAgent(openai.Client{}, "test-model", &SkillSet{}, nil, "hello")
 	msgs := agentMessages(t, agent)
 
 	if len(msgs) != 1 {
@@ -533,7 +533,7 @@ func TestNewAgentStacksSkillMessages(t *testing.T) {
 	want1 := skillPrefix(apple) + "blueberry-4127"
 	want2 := skillPrefix(grape) + "cherry-4127"
 
-	agent := NewAgent(openai.Client{}, "test-model", set, "/apple /grape 4127")
+	agent := NewAgent(openai.Client{}, "test-model", set, nil, "/apple /grape 4127")
 	msgs := agentMessages(t, agent)
 
 	if len(msgs) != 3 {

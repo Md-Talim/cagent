@@ -17,7 +17,7 @@ type Agent struct {
 	messages []openai.ChatCompletionMessageParamUnion
 }
 
-func NewAgent(client openai.Client, model string, skills *SkillSet, prompt string) *Agent {
+func NewAgent(client openai.Client, model string, skills *SkillSet, lsp *LSPClient, prompt string) *Agent {
 	messages := make([]openai.ChatCompletionMessageParamUnion, 0, 2)
 	if sys := skills.SystemPrompt(); sys != "" {
 		messages = append(messages, openai.SystemMessage(sys))
@@ -39,7 +39,7 @@ func NewAgent(client openai.Client, model string, skills *SkillSet, prompt strin
 		return sub.Run(ctx)
 	}
 
-	tools := toolRegistry(skills, runSubagent)
+	tools := toolRegistry(skills, runSubagent, lsp)
 
 	return &Agent{
 		client:   client,

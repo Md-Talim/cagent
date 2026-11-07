@@ -36,9 +36,18 @@ func main() {
 		os.Exit(1)
 	}
 
+	lsp, err := LSPClientFromEnvironment()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "error initializing LSP client: %v\n", err)
+		os.Exit(1)
+	}
+	if lsp != nil {
+		fmt.Fprintln(os.Stderr, "LSP client connected")
+	}
+
 	client := openai.NewClient(option.WithAPIKey(apiKey), option.WithBaseURL(baseUrl))
 
-	agent := NewAgent(client, "anthropic/claude-haiku-4.5", skills, prompt)
+	agent := NewAgent(client, "anthropic/claude-haiku-4.5", skills, lsp, prompt)
 	out, err := agent.Run(context.Background())
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)

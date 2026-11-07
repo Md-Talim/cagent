@@ -235,12 +235,12 @@ func TestToolRegistryIncludesSkillTool(t *testing.T) {
 		t.Fatalf("LoadSkills() error = %v", err)
 	}
 
-	tools := toolRegistry(set, nil)
+	tools := toolRegistry(set, nil, nil)
 	if _, ok := findTool(tools, "Skill"); !ok {
 		t.Error("Skill tool not registered")
 	}
 
-	empty := toolRegistry(&SkillSet{}, nil)
+	empty := toolRegistry(&SkillSet{}, nil, nil)
 	if _, ok := findTool(empty, "Skill"); ok {
 		t.Error("Skill tool registered without skills")
 	}
