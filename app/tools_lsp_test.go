@@ -59,7 +59,7 @@ func TestToolRegistryIncludesLSPWhenConfigured(t *testing.T) {
 	if _, ok := findTool(toolRegistry(nil, nil, nil), "LSP"); ok {
 		t.Error("LSP tool registered without a client")
 	}
-	if _, ok := findTool(toolRegistry(nil, nil, &LSPClient{}), "LSP"); !ok {
+	if _, ok := findTool(toolRegistry(nil, nil, newLSPSession(&LSPClient{})), "LSP"); !ok {
 		t.Error("LSP tool not registered with a client")
 	}
 }

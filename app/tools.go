@@ -23,7 +23,7 @@ func (t Tool) Definition() openai.ChatCompletionToolUnionParam {
 
 var baseTools = []Tool{readTool, writeTool, bashTool}
 
-func toolRegistry(skills *SkillSet, runSubagent SubagentRunner, lsp *LSPClient) []Tool {
+func toolRegistry(skills *SkillSet, runSubagent SubagentRunner, lsp *lspSession) []Tool {
 	tools := make([]Tool, 0, len(baseTools)+2)
 	tools = append(tools, baseTools...)
 	if lsp != nil {

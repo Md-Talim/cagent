@@ -26,12 +26,18 @@ func NewAgent(client openai.Client, model string, skills *SkillSet, lsp *LSPClie
 		messages = append(messages, openai.UserMessage(content))
 	}
 
+	var session *lspSession
+	if lsp != nil {
+		session = newLSPSession(lsp)
+	}
+
 	runSubagent := func(ctx context.Context, prompt string) (string, error) {
+		subTools := toolRegistry(nil, nil, session)
 		sub := &Agent{
 			client:   client,
 			model:    model,
-			tools:    baseTools,
-			toolDefs: toolDefinitions(baseTools),
+			tools:    subTools,
+			toolDefs: toolDefinitions(subTools),
 			messages: []openai.ChatCompletionMessageParamUnion{
 				openai.UserMessage(prompt),
 			},
@@ -39,7 +45,7 @@ func NewAgent(client openai.Client, model string, skills *SkillSet, lsp *LSPClie
 		return sub.Run(ctx)
 	}
 
-	tools := toolRegistry(skills, runSubagent, lsp)
+	tools := toolRegistry(skills, runSubagent, session)
 
 	return &Agent{
 		client:   client,
